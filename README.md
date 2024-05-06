@@ -7,7 +7,8 @@
 * Python version: >3.7
 
 ### Description
-This project contains some examples for HDSR to get WIWB (neerslag, etc.) and vdSat (bodemvocht till 2024-04-30) data:
+This project contains some examples for HDSR to get WIWB (neerslag, etc.) and vdSat (bodemvocht till 2024-04-30) data. 
+Moreover, it can resample the data (NetCDF) to .csv, to point(s), but also to polygon (aggregation in space).
 - WIWB API is a public API (behind a login) so we request data from the cloud.
 - vdSat data is already stored on HDSR's network drive (and every night updated with most recent data).
 We use [wiwb] to get the data and optionally resample it to timeseries per point or polygon.
