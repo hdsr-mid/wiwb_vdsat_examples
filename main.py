@@ -1,10 +1,8 @@
-import logging
-import sys
-from logging.handlers import RotatingFileHandler
 from examples import vdsat
 from examples import wiwb
-from ftp_results.constants import LOG_FILE_PATH, check_constants
-from ftp_results.create_html import create_html
+
+import logging
+import sys
 
 
 def check_python_version():
@@ -35,4 +33,3 @@ if __name__ == "__main__":
     setup_logging()
     wiwb.run_example()
     vdsat.run_example()
-

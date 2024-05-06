@@ -1,186 +1,88 @@
+from datetime import date
+from datetime import datetime
 from geopandas import GeoSeries
-from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from shapely.geometry import box
 from shapely.geometry import Point
-from wiwb.sample import sample_nc_dir
-from wiwb.sample import sample_netcdfs
+from wiwb.api import Api
+from wiwb.api_calls.get_grids import GetGrids
+from wiwb.auth import Auth
 
 import logging
-import sys
+
+
+logger = logging.getLogger(__name__)
 
 
 def run_example():
+    logger.info("start wiwb example")
 
+    _now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dir_name = f"wiwb_{_now}"
+    DATA_OUTPUT_DIR = Path(f"./data_output/{dir_name}")
+    DATA_OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
 
-    def check_python_version():
-        major = sys.version_info.major
-        minor = sys.version_info.minor
-        minor_min = 7
-        minor_max = 12
-        if major == 3 and minor_min <= minor <= minor_max:
-            return
-        raise AssertionError(f"your python version = {major}.{minor}. Please use python 3.{minor_min} to 3.{minor_max}")
+    wiwb_client_id = "api-wiwb-hdsr-tollenaar-tmp"
+    wiwb_client_secret = "Yz8Rrmc36TJ21FTLnKpVb6AMEY3oJUzS"
+    auth = Auth(client_id=wiwb_client_id, client_secret=wiwb_client_secret)
+    api = Api(auth=auth)
 
-    def setup_logging() -> None:
-        """Adds 2 configured handlers (rotating file + stream) to the root logger."""
-        # constants
-        stream_log_level = logging.INFO
-        stream_log_format = logging.Formatter(fmt="%(asctime)s %(filename)s %(levelname)s %(message)s",
-                                              datefmt="%H:%M:%S")
-        file_log_level = logging.INFO
-        file_log_format = logging.Formatter(
-            fmt="%(asctime)s %(filename)s %(levelname)s %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+    data_sources = api.get_data_sources()
+    logger.info("WIWB data sources:")
+    for ds in sorted(data_sources.keys()):
+        logger.info(f"    {ds}")
+    # [
+    # 'Knmi.International.Radar.Composite',
+    # 'Knmi.International.Radar.Composite.Combined',
+    # 'Knmi.International.Radar.Composite.Early.Reanalysis',
+    # 'Knmi.International.Radar.Composite.Early.Reanalysis.Test',
+    # 'Knmi.International.Radar.Composite.Final.Reanalysis',
+    # 'Knmi.International.Radar.Composite.Final.Reanalysis.Test',
+    # 'Knmi.International.Radar.Composite.Near.Realtime.Test',
+    # 'Knmi.Radar.CorrectedB',
+    # 'Knmi.Radar.CorrectedC2',
+    # 'Knmi.Radar.CorrectedD2',
+    # 'Knmi.Radar.Uncorrected',
+    # 'Meteobase.Evaporation.Makkink',
+    # 'Meteobase.Evaporation.PennmanMonteith',
+    # 'Meteobase.Precipitation',
+    # 'Satdata.Evapotranspiration.Reanalysis',
+    # 'Satdata.Evapotranspiration.Reanalysis.V2'
+    # ]
 
-        # handler: stream
-        stream_handler = logging.StreamHandler()
-        stream_handler.setLevel(stream_log_level)
-        stream_handler.setFormatter(stream_log_format)
+    data_source_code = "Meteobase.Precipitation"
+    assert data_source_code in data_sources, "this example is outdated, unexpected data_sources"
+    variables = api.get_variables(data_source_codes=[data_source_code])
+    logger.info(f"datasource '{data_source_code}' has variables: {variables}")
+    # {'P': {'Name': 'Precipitation', 'Code': 'P', 'Description': 'Neerslag', 'UnitCode': 'MM', 'State': 1}}
+    assert "P" in variables, f"this example is outdated, unexpected variables for data_source {data_source_code}"
 
-        # root logger
-        root_logger = logging.getLogger()
-        lowest_required_log_level = min(stream_log_level, file_log_level)
-        root_logger.setLevel(lowest_required_log_level)
-        root_logger.addHandler(stream_handler)
-        root_logger.info("setup logging done")
+    logger.info("Download data (NetCDF = .nc) to disk: Precipitation between 1 jan 2018 - 2 jan 2018")
+    grids = GetGrids(
+        auth=auth,
+        base_url=api.base_url,
+        data_source_code=data_source_code,
+        variable_code="P",
+        start_date=date(2018, 1, 1),
+        end_date=date(2018, 1, 2),
+        data_format_code="netcdf4.cf1p6",
+    )
+    grids.run()
+    grids.to_directory(output_dir=DATA_OUTPUT_DIR.as_posix())  # .nc in DATA_OUTPUT_DIR van 49 kb
 
-    def add_points_to_grids(grids):
-        LL_POINT = Point(119865, 449665)
-        UR_POINT = Point(127325, 453565)
-        OTHER_POINT = Point(135125, 453394)
-        POLYGON = box(LL_POINT.x, LL_POINT.y, UR_POINT.x, UR_POINT.y)
-        GEOSERIES = GeoSeries(
-            [LL_POINT, UR_POINT, OTHER_POINT, POLYGON], index=["ll_point", "ur_point", "other_point", "polygon"],
-            crs=28992
-        )
+    logger.info("Create points and polygon where we want to sample timeseries")
+    LL_POINT = Point(119865, 449665)
+    UR_POINT = Point(127325, 453565)
+    OTHER_POINT = Point(135125, 453394)
+    POLYGON = box(LL_POINT.x, LL_POINT.y, UR_POINT.x, UR_POINT.y)
+    GEOSERIES = GeoSeries(
+        [LL_POINT, UR_POINT, OTHER_POINT, POLYGON], index=["ll_point", "ur_point", "other_point", "polygon"], crs=28992
+    )
 
-        grids.geometries = GEOSERIES
-        # TODO: @daniel: zit hier een check op GEOSERIES binnen bounding box van grids valt?
+    logger.info("Do the actual sampling and save timeseries to .csv")
+    grids.set_geometries(GEOSERIES)
+    df = grids.sample()
+    csv_file_path = DATA_OUTPUT_DIR / f"samples_{_now}.csv"
+    df.to_csv(csv_file_path.as_posix())
 
-        return grids
-
-    if __name__ == "__main__":
-        check_python_version()
-        setup_logging()
-        logger = logging.getLogger(__name__)
-        logger.info("starting app")
-
-        from datetime import date
-        from datetime import datetime
-        from pathlib import Path
-        from wiwb.api import Api
-        from wiwb.api_calls.get_grids import GetGrids
-        from wiwb.auth import Auth
-
-        TMP_OUTPUT_DIR = Path("./tmp_output_dir")
-        assert TMP_OUTPUT_DIR.is_dir()
-
-        wiwb_client_id = "api-wiwb-hdsr-tollenaar-tmp"
-        wiwb_client_secret = "Yz8Rrmc36TJ21FTLnKpVb6AMEY3oJUzS"
-        auth = Auth(client_id=wiwb_client_id, client_secret=wiwb_client_secret)
-
-        api = Api(auth=auth)
-
-        data_sources = api.get_data_sources()
-        print(sorted(data_sources.keys()))
-        # [
-        # 'Knmi.International.Radar.Composite',
-        # 'Knmi.International.Radar.Composite.Combined',
-        # 'Knmi.International.Radar.Composite.Early.Reanalysis',
-        # 'Knmi.International.Radar.Composite.Early.Reanalysis.Test',
-        # 'Knmi.International.Radar.Composite.Final.Reanalysis',
-        # 'Knmi.International.Radar.Composite.Final.Reanalysis.Test',
-        # 'Knmi.International.Radar.Composite.Near.Realtime.Test',
-        # 'Knmi.Radar.CorrectedB',
-        # 'Knmi.Radar.CorrectedC2',
-        # 'Knmi.Radar.CorrectedD2',
-        # 'Knmi.Radar.Uncorrected',
-        # 'Meteobase.Evaporation.Makkink',
-        # 'Meteobase.Evaporation.PennmanMonteith',
-        # 'Meteobase.Precipitation',
-        # 'Satdata.Evapotranspiration.Reanalysis',
-        # 'Satdata.Evapotranspiration.Reanalysis.V2'
-        # ]
-
-        variables = api.get_variables(data_source_codes=["Meteobase.Precipitation"])
-        print(variables)
-        # {'P': {'Name': 'Precipitation', 'Code': 'P', 'Description': 'Neerslag', 'UnitCode': 'MM', 'State': 1}}
-
-        grids = GetGrids(
-            auth=auth,
-            base_url=api.base_url,
-            data_source_code="Meteobase.Precipitation",
-            variable_code="P",
-            start_date=date(2018, 1, 1),
-            end_date=date(2018, 1, 2),
-            data_format_code="netcdf4.cf1p6",
-        )
-
-        grids.run()
-        # grids.write(output_dir=TMP_OUTPUT_DIR.as_posix())  # .nc in TMP_OUTPUT_DIR van 49 kb
-
-        LL_POINT = Point(119865, 449665)
-        UR_POINT = Point(127325, 453565)
-        OTHER_POINT = Point(135125, 453394)
-        POLYGON = box(LL_POINT.x, LL_POINT.y, UR_POINT.x, UR_POINT.y)
-        GEOSERIES = GeoSeries(
-            [LL_POINT, UR_POINT, OTHER_POINT, POLYGON], index=["ll_point", "ur_point", "other_point", "polygon"],
-            crs=28992
-        )
-
-        # LL_POINT = Point(119865, 449665)
-        #     UR_POINT = Point(127325, 453565)
-        #     UR_POINT_invalid = Point(197325, 453565)
-        #     OTHER_POINT = Point(135125, 453394)
-        #     POLYGON = box(LL_POINT.x, LL_POINT.y, UR_POINT.x, UR_POINT.y)
-        #     GEOSERIES = GeoSeries(
-        #         [LL_POINT, UR_POINT, UR_POINT_invalid,
-        #          OTHER_POINT, POLYGON], index=["ll_point", "ur_point", "ur_point_invalid", "other_point", "polygon"], crs=28992
-        #     )
-
-        grids.set_geometries(GEOSERIES)
-        a = grids.geoseries
-
-        df = grids.sample()
-        _now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_file_path = TMP_OUTPUT_DIR / f"samples_{_now}.csv"
-        df.to_csv(csv_file_path.as_posix())
-
-        # het is momenteel alleen mogelijk om .nc te resamplen (niet .geotiff)
-        H_DRIVE = Path("H:/")
-        dir_path_vdsat = H_DRIVE / "DATA/WIWB_grids/VanderSat_Bodemvocht_HDSR"
-        vd_sat_a = dir_path_vdsat / "DRZSM-SMAP-LN-DESC-T10_V003_100"
-        vd_sat_b = dir_path_vdsat / "DRZSM-SMAP-LN-DESC-T20_V003_100"
-        vd_sat_c = dir_path_vdsat / "SM-SMAP-LN-DESC_V003_100"
-
-        for _dir in [vd_sat_a, vd_sat_b, vd_sat_c]:
-            assert _dir.is_dir()
-            variable_code = _dir.name
-            complete_nc_dir = _dir / "Complete_files"
-            nc_files = [x for x in complete_nc_dir.iterdir() if x.suffix == ".nc"]
-            assert nc_files
-            nc_files = [x.stem for x in nc_files]
-
-            try:
-                sample_netcdfs(
-                    nc_files=nc_files,
-                    variable_code=variable_code,
-                    stats="max",
-                    start_date=datetime(year=2023, month=12, day=1),
-                    end_date=datetime(year=2023, month=12, day=31),
-                    geometries=grids.geoseries
-                )
-            except Exception as err:
-                print(err)
-
-        # sample_nc_dir(
-        #     dir=vd_sat_a / "Complete_files",
-        #     variable_code="DRZSM-SMAP-LN-DESC-T10_V003_100",
-        #     geometries=GEOSERIES,
-        #     stats="poep",
-        #     start_date=None,
-        #     end_date=None,
-        # )
-
-        logger.info("shutting down app")
+    logger.info("wiwb example finished")

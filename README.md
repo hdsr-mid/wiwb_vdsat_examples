@@ -3,10 +3,11 @@
 ### Context
 * Created: April 2024
 * Author: Renier Kramer, renier.kramer@hdsr.nl
+* Maintainer: Roger de Crook, roger.de.crook@hdsr.nl
 * Python version: >3.7
 
 ### Description
-Some examples for HDSR to get WIWB (neerslag, etc.) and vdSat (bodemvocht) data.
+This project contains some examples for HDSR to get WIWB (neerslag, etc.) and vdSat (bodemvocht till 2024-04-30) data:
 - WIWB API is a public API (behind a login) so we request data from the cloud.
 - vdSat data is already stored on HDSR's network drive (and every night updated with most recent data).
 We use [wiwb] to get the data and optionally resample it to timeseries per point or polygon.
@@ -21,7 +22,7 @@ We use [wiwb] to get the data and optionally resample it to timeseries per point
 4. Optionally edit examples/vdsat.py if you want to get vdsat data
 5. Run code:
 ```
-> conda activate wiwb_examples_for_hdsr
+> conda activate wiwb_vdsat_examples
 > python <path_to_project>/main.py
 ```
 
@@ -44,7 +45,7 @@ None
 
 ### Conda general tips
 #### Build conda environment (on Windows) from any directory using environment.yml:
-Note1: prefix is not set in the enviroment.yml as then conda does not handle it very well
+Note1: prefix is not set in the environment.yml as then conda does not handle it very well
 Note2: env_directory can be anywhere, it does not have to be in your code project
 ```
 > conda env create --prefix <env_directory><env_name> --file <path_to_project>/environment.yml
